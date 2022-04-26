@@ -1,6 +1,5 @@
-from elasticsearch import Elasticsearch, RequestsHttpConnection, helpers
-import csv
-import json
+from elasticsearch import Elasticsearch, helpers
+from utility import save_csv, save_json
 
 
 class ElasticConnection:
@@ -9,11 +8,8 @@ class ElasticConnection:
         self.password = 'changeme'
         self.index = "monster-01"
         self.elastic_client = Elasticsearch(
-            host='localhost',
-            http_auth=(self.user, self.password),
-            scheme="http",
-            port=9200,
-            connection_class=RequestsHttpConnection
+            "http://localhost:9200",
+            api_key=(self.user, self.password)
         )
 
     def read_main_log(self):
@@ -24,8 +20,8 @@ class ElasticConnection:
                         {
                             "range": {
                                 "@timestamp": {
-                                    "gte": "2022-02-07T08:00:00.000Z",
-                                    "lte": "2022-02-07T13:49:00.000Z"
+                                    "gte": "2022-02-07T11:00:00.000Z",
+                                    "lte": "2022-02-07T11:59:00.000Z"
                                 }
                             }
                         },
@@ -36,7 +32,7 @@ class ElasticConnection:
                         },
                         {
                             "regexp": {
-                                "user_agent.keyword": ".{5,9}-server [0-9]{2,4}"
+                                "user_agent.keyword": ".{5,9}-server [0-9]{2,4}|@&~((account|container|object).+)"
                             }
                         },
                         # {
@@ -46,6 +42,18 @@ class ElasticConnection:
                         #             "operator": "or"
                         #         }
                         #     }
+                        # },
+                        # {
+                        #     "bool": {
+                        #         "must_not": {
+                        #             "match": {
+                        #                 "user_agent": {
+                        #                     "query": "container-auditor object-auditor container-replicator object-updater object-replicator container-sync account-auditor container-updater account-replicator",
+                        #                     "operator": "or"
+                        #                 }
+                        #             }
+                        #         }
+                        #     },
                         # },
                         {
                             "bool": {
@@ -89,22 +97,8 @@ class ElasticConnection:
             query=body,
             index=self.index)
 
-        # make_row = lambda record, key: record[key] if key in record.keys() else ''
-        # with open('LogDB_main.csv', 'w', newline='') as csvfile:
-        #     writer = csv.DictWriter(csvfile, fieldnames=attribute_names)
-        #     writer.writeheader()
-        #     i = 0
-        #     for record in index_reader:
-        #         new_row = {key: make_row(record['_source'], key) for key in attribute_names}
-        #         writer.writerow(new_row)
-        #         i += 1
-        #         # if i == 10:
-        #         #     break
-        # pass
-        with open('LogDB_main.json', 'w', encoding='utf-8') as jsonfile:
-            for record in index_reader:
-                json.dump(record['_source'], jsonfile, ensure_ascii=False, indent=4)
-        pass
+        save_csv(index_reader, attribute_names)
+        save_json(index_reader)
 
     def read_all_log(self):
         body = {
@@ -114,16 +108,16 @@ class ElasticConnection:
                         {
                             "range": {
                                 "@timestamp": {
-                                    "gte": "2022-02-07T08:00:00.000Z",
-                                    "lte": "2022-02-07T13:49:00.000Z"
+                                    "gte": "2022-02-07T11:00:00.000Z",
+                                    "lte": "2022-02-07T11:49:00.000Z"
                                 }
                             }
                         },
-                        {
-                            "match": {
-                                "severity": "info"
-                            }
-                        },
+                        # {
+                        #     "match": {
+                        #         "severity": "info"
+                        #     }
+                        # },
                         {
                             "bool": {
                                 "should": [
@@ -172,11 +166,11 @@ class ElasticConnection:
                                             "programname": "object-replicator"
                                         }
                                     },
-                                    {
-                                        "match_phrase": {
-                                            "programname": "container-sync"
-                                        }
-                                    },
+                                    # {
+                                    #     "match_phrase": {
+                                    #         "programname": "container-sync"
+                                    #     }
+                                    # },
                                     {
                                         "match_phrase": {
                                             "programname": "account-auditor"
@@ -203,6 +197,7 @@ class ElasticConnection:
 
         records = self.elastic_client.search(index=self.index, body=body)
         # attribute_names = records['hits']['hits'][0]['_source'].keys()
+        attribute_names = ["@timestamp", "programname", "severity", "message"]
 
         index_reader = helpers.scan(
             client=self.elastic_client,
@@ -210,64 +205,6 @@ class ElasticConnection:
             query=body,
             index=self.index)
 
-        with open('LogDB_all.json', 'w', encoding='utf-8') as jsonfile:
-            for record in index_reader:
-                json.dump(record['_source'], jsonfile, ensure_ascii=False, indent=4)
-        pass
+        save_csv(index_reader, attribute_names)
+        save_json(index_reader)
 
-        # Another way to get all the records of an index
-
-        # body2 = {
-        #     "query": {
-        #         "term": {"user": self.user}
-        #     }
-        # }
-        #
-        # res = self.elastic_client.count(index=self.index, body=body2)
-        # size = res['count']
-        #
-        # body = {"size": 10,
-        #         "query": {
-        #             "term": {
-        #                 "user": self.user
-        #             }
-        #         },
-        #         "sort": [
-        #             {"date": "asc"},
-        #             {"_uid": "desc"}
-        #         ]
-        #         }
-        #
-        # result = self.elastic_client.search(index=self.index, body=body)
-        # bookmark = [result['hits']['hits'][-1]['sort'][0], str(result['hits']['hits'][-1]['sort'][1])]
-        #
-        # body1 = {"size": 10,
-        #          "query": {
-        #              "term": {
-        #                  "user": self.user
-        #              }
-        #          },
-        #          "search_after": bookmark,
-        #          "sort": [
-        #              {"date": "asc"},
-        #              {"_uid": "desc"}
-        #          ]
-        #          }
-        #
-        # while len(result['hits']['hits']) < size:
-        #     res = self.elastic_client.search(index=self.index, body=body1)
-        #     for el in res['hits']['hits']:
-        #         result['hits']['hits'].append(el)
-        #     bookmark = [res['hits']['hits'][-1]['sort'][0], str(result['hits']['hits'][-1]['sort'][1])]
-        #     body1 = {"size": 10,
-        #              "query": {
-        #                  "term": {
-        #                      "user": self.user
-        #                  }
-        #              },
-        #              "search_after": bookmark,
-        #              "sort": [
-        #                  {"date": "asc"},
-        #                  {"_uid": "desc"}
-        #              ]
-        #              }
